@@ -12,7 +12,7 @@ import cv2
 
 
 class dreams_dataset(Dataset):
-    def __init__(self, input_path = '/home/marius/Documents/THESIS/data/temp/1D_MASS_MODA_processed/input', label_path = '/home/marius/Documents/THESIS/data/temp/1D_MASS_MODA_processed/labels/'):
+    def __init__(self, input_path = '/scratch/s174411/MM_C1/1D_MASS_MODA_processed/input/', label_path = '/scratch/s174411/MM_C1/1D_MASS_MODA_processed/labels/'):
         self.input_path = input_path
         self.label_path = label_path
         self.input_dict = {}
@@ -35,7 +35,7 @@ class dreams_dataset(Dataset):
         
         for in_path in temp_input_list:
             for la_path in temp_output_list:
-                if in_path[-16:-6] == la_path[-17:-7]:
+                if in_path[-16:-3] == la_path[-17:-4]:
                     self.master_path_list.append((in_path,la_path))
                 
 

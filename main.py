@@ -18,15 +18,17 @@ from models import build_model
 
 from dreams_dataloader import dreams_dataset
 
+from pytorch_model_summary import summary
+
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--lr_backbone', default=1e-5, type=float)
-    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--batch_size', default=20, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--lr_drop', default=80, type=int)
+    parser.add_argument('--lr_drop', default=75, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
 
@@ -42,19 +44,19 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
-    parser.add_argument('--enc_layers', default=6, type=int,
+    parser.add_argument('--enc_layers', default=5, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=6, type=int,
+    parser.add_argument('--dec_layers', default=5, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--dim_feedforward', default=2048, type=int,
+    parser.add_argument('--dim_feedforward', default=256, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=256, type=int,
+    parser.add_argument('--hidden_dim', default=64, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0.1, type=float,
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=8, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=100, type=int,
+    parser.add_argument('--num_queries', default=20, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -95,7 +97,7 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
-    parser.add_argument('--num_workers', default=2, type=int)
+    parser.add_argument('--num_workers', default=6, type=int)
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -121,6 +123,7 @@ def main(args):
     random.seed(seed)
 
     model, criterion, postprocessors = build_model(args)
+    #print(summary(model(), torch.zeros((1, 1, 7680)), show_input=True))
     model.to(device)
 
     model_without_ddp = model
@@ -145,6 +148,7 @@ def main(args):
     train_size = int(len(dataset)* 0.9)
     val_size = int(len(dataset) - train_size)
     dataset_train, dataset_val = torch.utils.data.random_split(dataset, [train_size,val_size])
+    dataset_val = dataset_train
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -165,8 +169,8 @@ def main(args):
             label_list.append(label)
             food_list.append(food)
 
-            food_list = torch.stack(food_list)
-            food_list = food_list.float()
+        food_list = torch.stack(food_list)
+        food_list = food_list.float()
         return food_list,label_list
 
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,collate_fn=custom_collate, num_workers=args.num_workers)
