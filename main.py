@@ -23,12 +23,12 @@ from pytorch_model_summary import summary
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
-    parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--lr_backbone', default=1e-5, type=float)
-    parser.add_argument('--batch_size', default=20, type=int)
-    parser.add_argument('--weight_decay', default=1e-4, type=float)
+    parser.add_argument('--lr', default=1e-7, type=float)
+    parser.add_argument('--lr_backbone', default=1e-7, type=float)
+    parser.add_argument('--batch_size', default=2, type=int)
+    parser.add_argument('--weight_decay', default=0, type=float)
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--lr_drop', default=75, type=int)
+    parser.add_argument('--lr_drop', default=80, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
 
@@ -44,19 +44,19 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
-    parser.add_argument('--enc_layers', default=5, type=int,
+    parser.add_argument('--enc_layers', default=2, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=5, type=int,
+    parser.add_argument('--dec_layers', default=2, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--dim_feedforward', default=256, type=int,
+    parser.add_argument('--dim_feedforward', default=36, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=64, type=int,
+    parser.add_argument('--hidden_dim', default=36, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
-    parser.add_argument('--dropout', default=0.1, type=float,
+    parser.add_argument('--dropout', default=0, type=float,
                         help="Dropout applied in the transformer")
-    parser.add_argument('--nheads', default=8, type=int,
+    parser.add_argument('--nheads', default=6, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=20, type=int,
+    parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -140,15 +140,17 @@ def main(args):
             "lr": args.lr_backbone,
         },
     ]
-    optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
-                                  weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
-    dataset = dreams_dataset()
-    train_size = int(len(dataset)* 0.9)
-    val_size = int(len(dataset) - train_size)
-    dataset_train, dataset_val = torch.utils.data.random_split(dataset, [train_size,val_size])
-    dataset_val = dataset_train
+
+
+    #dataset = dreams_dataset()
+    #train_size = int(len(dataset)* 0.9)
+    #val_size = int(len(dataset) - train_size)
+    #dataset_train, dataset_val = torch.utils.data.random_split(dataset, [train_size,val_size])
+    #dataset_val = dataset_train
+
+    dataset_train = dreams_dataset(input_path = '/scratch/s174411/MM_C1/TRAIN_FULL/input/', label_path = '/scratch/s174411/MM_C1/TRAIN_FULL/labels/')
+    dataset_val = dreams_dataset(input_path = '/scratch/s174411/MM_C1/VAL_FULL/input/', label_path = '/scratch/s174411/MM_C1/VAL_FULL/labels/')
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -172,9 +174,37 @@ def main(args):
         food_list = torch.stack(food_list)
         food_list = food_list.float()
         return food_list,label_list
-
+    
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,collate_fn=custom_collate, num_workers=args.num_workers)
     data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,drop_last=False, collate_fn=custom_collate, num_workers=args.num_workers)
+
+    def lr_lambda(epoch):
+    # LR to be 0.1 * (1/1+0.01*epoch)
+        base_lr = 1
+        factor = 0.01
+        return base_lr/(1+factor*epoch)
+
+
+    optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
+                                  weight_decay=args.weight_decay)
+    #lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+    
+    #lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
+                     #max_lr = 1e-4, # Upper learning rate boundaries in the cycle for each parameter group
+                     #steps_per_epoch = len(data_loader_train),
+                     #epochs = 20,
+                     #pct_start = 0.2,
+                     #div_factor = 100000,
+                     #final_div_factor = 100000000,
+                     #cycle_momentum=False,
+                     #anneal_strategy = 'linear')
+
+
+
+    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5,10,15], gamma=10)
+    scheduler2 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25,45,70,90], gamma=0.1)
+    lr_scheduler = torch.optim.lr_scheduler.ChainedScheduler([scheduler1, scheduler2])
+
 
     if args.dataset_file == "coco_panoptic":
         # We also evaluate AP during panoptic training, on original coco DS
@@ -212,6 +242,8 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
+        
+        print(lr_scheduler.get_last_lr())
         train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, device, epoch,
             args.clip_max_norm)

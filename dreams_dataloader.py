@@ -12,7 +12,7 @@ import cv2
 
 
 class dreams_dataset(Dataset):
-    def __init__(self, input_path = '/scratch/s174411/MM_C1/1D_MASS_MODA_processed/input/', label_path = '/scratch/s174411/MM_C1/1D_MASS_MODA_processed/labels/'):
+    def __init__(self, input_path = '/scratch/s174411/center_width/1D_MASS_MODA_processed/input/', label_path = '/scratch/s174411/center_width/1D_MASS_MODA_processed/labels/'):
         self.input_path = input_path
         self.label_path = label_path
         self.input_dict = {}
@@ -47,6 +47,9 @@ class dreams_dataset(Dataset):
         #print(self.input_dict[idx])
         food, labels = self.master_path_list[idx]
         fourier_array = np.load(food)
+        # Standardize
+        fourier_array = (fourier_array - np.mean(fourier_array))/np.std(fourier_array)
+
         fourier_array = torch.tensor(fourier_array)
         fourier_array = fourier_array[None, :]
 
