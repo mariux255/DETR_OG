@@ -15,7 +15,7 @@ from datasets.panoptic_eval import PanopticEvaluator
 
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
+                    data_loader: Iterable, optimizer: torch.optim.Optimizer, lr_scheduler,
                     device: torch.device, epoch: int, max_norm: float = 0):
     model.train()
     criterion.train()
@@ -24,7 +24,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
-
+    batch_counter = 0
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -49,18 +49,25 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             print(loss_dict_reduced)
             sys.exit(1)
 
-        optimizer.zero_grad()
+        #optimizer.zero_grad()
         losses.backward()
         if max_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-        optimizer.step()
-
+        #optimizer.step()
+        if (batch_counter + 1) % 20 == 0 or (batch_counter + 1 == len(data_loader)):
+            optimizer.step()
+            optimizer.zero_grad()
+        #lr_scheduler.step()
+        batch_counter += 1
+        #f1_score(outputs, targets)
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
         metric_logger.update(class_error=loss_dict_reduced['class_error'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
+    f1_score(outputs, targets)
     print("Averaged stats:", metric_logger)
+    
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -150,3 +157,48 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
     return stats, coco_evaluator
+
+
+def f1_score(outputs, targets):
+    
+    #keep = probas.max(-1).values > 0.7
+    #
+    #print(kept_boxes.shape)
+    for i in range(outputs['pred_logits'].shape[0]):
+        probas = outputs['pred_logits'].softmax(-1)[i,:,:-1]
+        keep = probas.max(-1).values > 0.7
+        kept_boxes = outputs['pred_boxes'][i,keep]
+        target_bbox = targets[i]['boxes']
+        
+        F1 = 0
+        for out_box in kept_boxes:
+            out_box_start = out_box[0] - out_box[1]/2
+            out_box_end = out_box[0] + out_box[1]/2
+
+            best_match = -1
+            for j,tar_box in enumerate(target_bbox):
+                tar_box_start = tar_box[0] - tar_box[1]/2
+                tar_box_end = tar_box[0] + tar_box[1]/2
+
+                if ((out_box_end > tar_box_start) and (out_box_start <= tar_box_start)):
+                    if iou(out_box, tar_box) > iou(out_box, target_bbox[best_match]):
+                        best_match = j
+        try:
+            print(iou(out_box,target_bbox[best_match]))
+        except:
+            ...
+
+
+def iou(out,tar):
+    out_box_start = out[0] - out[1]/2
+    out_box_end = out[0] + out[1]/2
+
+    tar_box_start = tar[0] - tar[1]/2
+    tar_box_end = tar[0] + tar[1]/2
+
+    overlap_start = max(out_box_start, tar_box_start)
+    overlap_end = min(out_box_end, tar_box_end)
+    union_start = min(out_box_start, tar_box_start)
+    union_end = max(out_box_end, tar_box_end)
+
+    return ((overlap_end - overlap_start)/(union_end-union_start))

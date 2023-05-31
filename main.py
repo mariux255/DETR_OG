@@ -23,12 +23,12 @@ from pytorch_model_summary import summary
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
-    parser.add_argument('--lr', default=1e-7, type=float)
-    parser.add_argument('--lr_backbone', default=1e-7, type=float)
-    parser.add_argument('--batch_size', default=2, type=int)
+    parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--lr_backbone', default=1e-5, type=float)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--weight_decay', default=0, type=float)
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--lr_drop', default=80, type=int)
+    parser.add_argument('--lr_drop', default=60, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
 
@@ -44,19 +44,19 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
-    parser.add_argument('--enc_layers', default=2, type=int,
+    parser.add_argument('--enc_layers', default=6, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=2, type=int,
+    parser.add_argument('--dec_layers', default=6, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--dim_feedforward', default=36, type=int,
+    parser.add_argument('--dim_feedforward', default=2048, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=36, type=int,
+    parser.add_argument('--hidden_dim', default=256, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0, type=float,
                         help="Dropout applied in the transformer")
-    parser.add_argument('--nheads', default=6, type=int,
+    parser.add_argument('--nheads', default=8, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=100, type=int,
+    parser.add_argument('--num_queries', default=20, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -79,7 +79,7 @@ def get_args_parser():
     parser.add_argument('--dice_loss_coef', default=1, type=float)
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
-    parser.add_argument('--eos_coef', default=0.1, type=float,
+    parser.add_argument('--eos_coef', default=0.01, type=float,
                         help="Relative classification weight of the no-object class")
 
     # dataset parameters
@@ -149,8 +149,8 @@ def main(args):
     #dataset_train, dataset_val = torch.utils.data.random_split(dataset, [train_size,val_size])
     #dataset_val = dataset_train
 
-    dataset_train = dreams_dataset(input_path = '/scratch/s174411/MM_C1/TRAIN_FULL/input/', label_path = '/scratch/s174411/MM_C1/TRAIN_FULL/labels/')
-    dataset_val = dreams_dataset(input_path = '/scratch/s174411/MM_C1/VAL_FULL/input/', label_path = '/scratch/s174411/MM_C1/VAL_FULL/labels/')
+    dataset_train = dreams_dataset(input_path = '/scratch/s174411/FIL_CEN/TRAIN/input/', label_path = '/scratch/s174411/FIL_CEN/TRAIN/labels/')
+    dataset_val = dreams_dataset(input_path = '/scratch/s174411/FIL_CEN/VAL/input/', label_path = '/scratch/s174411/FIL_CEN/VAL/labels/')
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -187,55 +187,25 @@ def main(args):
 
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
                                   weight_decay=args.weight_decay)
-    #lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 80, gamma = 0.1)
     
     #lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
-                     #max_lr = 1e-4, # Upper learning rate boundaries in the cycle for each parameter group
-                     #steps_per_epoch = len(data_loader_train),
-                     #epochs = 20,
-                     #pct_start = 0.2,
-                     #div_factor = 100000,
-                     #final_div_factor = 100000000,
-                     #cycle_momentum=False,
-                     #anneal_strategy = 'linear')
+                    #max_lr = 1e-5, # Upper learning rate boundaries in the cycle for each parameter group
+                    #steps_per_epoch = len(data_loader_train),
+                    #epochs = 60,
+                    #pct_start = 0.2,
+                    #cycle_momentum=False)
 
 
 
-    scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5,10,15], gamma=10)
-    scheduler2 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25,45,70,90], gamma=0.1)
-    lr_scheduler = torch.optim.lr_scheduler.ChainedScheduler([scheduler1, scheduler2])
+    #scheduler1 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[2,4,6], gamma=10)
+    #scheduler2 = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[55,,35,45], gamma=0.1)
+    #lr_scheduler = torch.optim.lr_scheduler.ChainedScheduler([scheduler1, scheduler2])
 
 
-    if args.dataset_file == "coco_panoptic":
-        # We also evaluate AP during panoptic training, on original coco DS
-        coco_val = datasets.coco.build("val", args)
-        base_ds = get_coco_api_from_dataset(coco_val)
-    else:
-        base_ds = get_coco_api_from_dataset(dataset_val)
+    base_ds = get_coco_api_from_dataset(dataset_val)
 
-    if args.frozen_weights is not None:
-        checkpoint = torch.load(args.frozen_weights, map_location='cpu')
-        model_without_ddp.detr.load_state_dict(checkpoint['model'])
-
-    output_dir = Path(args.output_dir)
-    if args.resume:
-        if args.resume.startswith('https'):
-            checkpoint = torch.hub.load_state_dict_from_url(
-                args.resume, map_location='cpu', check_hash=True)
-        else:
-            checkpoint = torch.load(args.resume, map_location='cpu')
-        model_without_ddp.load_state_dict(checkpoint['model'])
-        if not args.eval and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            args.start_epoch = checkpoint['epoch'] + 1
-
-    if args.eval:
-        test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
-                                              data_loader_val, base_ds, device, args.output_dir)
-        if args.output_dir:
-            utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
-        return
+   
 
     print("Start training")
     start_time = time.time()
@@ -245,7 +215,7 @@ def main(args):
         
         print(lr_scheduler.get_last_lr())
         train_stats = train_one_epoch(
-            model, criterion, data_loader_train, optimizer, device, epoch,
+            model, criterion, data_loader_train, optimizer, lr_scheduler, device, epoch,
             args.clip_max_norm)
         lr_scheduler.step()
         if args.output_dir:
