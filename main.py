@@ -19,17 +19,17 @@ from models import build_model
 from dreams_dataloader import dreams_dataset
 
 from pytorch_model_summary import summary
-
+import torch.nn as nn
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
-    parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--lr_backbone', default=1e-5, type=float)
-    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--lr', default=0, type=float)
+    parser.add_argument('--lr_backbone', default=1e-3, type=float)
+    parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--lr_drop', default=60, type=int)
-    parser.add_argument('--clip_max_norm', default=0.1, type=float,
+    parser.add_argument('--epochs', default=700, type=int)
+    parser.add_argument('--lr_drop', default=1200, type=int)
+    parser.add_argument('--clip_max_norm', default=0.01, type=float,
                         help='gradient clipping max norm')
 
     # Model parameters
@@ -50,13 +50,13 @@ def get_args_parser():
                         help="Number of decoding layers in the transformer")
     parser.add_argument('--dim_feedforward', default=2048, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=256, type=int,
+    parser.add_argument('--hidden_dim', default=64, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0, type=float,
                         help="Dropout applied in the transformer")
-    parser.add_argument('--nheads', default=8, type=int,
+    parser.add_argument('--nheads', default=1, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=20, type=int,
+    parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -122,8 +122,15 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
+
     model, criterion, postprocessors = build_model(args)
     #print(summary(model(), torch.zeros((1, 1, 7680)), show_input=True))
+
+    if torch.cuda.is_available():
+        device = "cuda:0"
+        if torch.cuda.device_count() > 1:
+            print(torch.cuda.device_count(), " GPU's GIVEN")
+            model = nn.DataParallel(model)
     model.to(device)
 
     model_without_ddp = model
@@ -134,14 +141,17 @@ def main(args):
     print('number of params:', n_parameters)
 
     param_dicts = [
-        {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
+        {"params": [p for n, p in model_without_ddp.named_parameters() if ("backbone" or "class_embed" or "bbox_embed" or "query") not in n and p.requires_grad]},
         {
-            "params": [p for n, p in model_without_ddp.named_parameters() if "backbone" in n and p.requires_grad],
+            "params": [p for n, p in model_without_ddp.named_parameters() if ("backbone" or "class_embed" or "bbox_embed" or "query") in n and p.requires_grad],
             "lr": args.lr_backbone,
         },
     ]
 
-
+    n_list = []
+    for n, p in model_without_ddp.named_parameters():
+        n_list.append(n)
+    #print(n_list)
 
     #dataset = dreams_dataset()
     #train_size = int(len(dataset)* 0.9)
@@ -187,7 +197,7 @@ def main(args):
 
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
                                   weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 80, gamma = 0.1)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 250, gamma = 0.1)
     
     #lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
                     #max_lr = 1e-5, # Upper learning rate boundaries in the cycle for each parameter group
@@ -205,7 +215,8 @@ def main(args):
 
     base_ds = get_coco_api_from_dataset(dataset_val)
 
-   
+    for g in optimizer.param_groups:
+        print(g['lr'])
 
     print("Start training")
     start_time = time.time()
@@ -213,11 +224,43 @@ def main(args):
         if args.distributed:
             sampler_train.set_epoch(epoch)
         
-        print(lr_scheduler.get_last_lr())
         train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, lr_scheduler, device, epoch,
             args.clip_max_norm)
-        lr_scheduler.step()
+        #lr_scheduler.step()
+        if epoch == 200:
+            # Lr transformer
+            optimizer.param_groups[0]['lr'] = 1e-6
+            # Lr backbone
+            optimizer.param_groups[1]['lr'] = 1e-12
+            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
+            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
+
+        if epoch == 210:
+            # Lr transformer
+            optimizer.param_groups[0]['lr'] = 1e-4
+            # Lr backbone
+            optimizer.param_groups[1]['lr'] = 1e-8
+            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
+            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
+
+        if epoch == 230:
+            # Lr transformer
+            optimizer.param_groups[0]['lr'] = 1e-4
+            # Lr backbone
+            optimizer.param_groups[1]['lr'] = 1e-5
+            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
+            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
+
+        if epoch == 600:
+            # Lr transformer
+            optimizer.param_groups[0]['lr'] = 1e-5
+            # Lr backbone
+            optimizer.param_groups[1]['lr'] = 1e-6
+            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
+            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
+
+
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
             # extra checkpoint before LR drop and every 100 epochs

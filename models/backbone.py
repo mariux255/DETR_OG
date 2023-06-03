@@ -33,35 +33,64 @@ class Joiner(nn.Sequential):
     
 
     
-class MJ_CONV2(nn.Module):
+class Backbone(nn.Module):
     def __init__(self):
         super().__init__()
         n_groups = 8
         
-        self.conv_1 = nn.Conv1d(1, 256, kernel_size = 5)
-        #self.batch_1 = nn.GroupNorm(n_groups, 256)
-        self.pool_1 = nn.MaxPool1d(kernel_size = 1)
+        # ENCODER GROUND LEVEL (LEVEL 1)
+        self.conv_1_1 = nn.Conv1d(1, 64, kernel_size = 5, stride = 2, dilation = 2)
+        self.batch_1_1 = nn.GroupNorm(n_groups, 64)
 
-        self.conv_2 = nn.Conv1d(256, 512, kernel_size = 3, padding = 0)
-        #self.batch_2 = nn.GroupNorm(n_groups, 512)
-        self.pool_2 = nn.MaxPool1d(kernel_size = 1)
+        self.conv_1_2 = nn.Conv1d(64, 128, kernel_size = 5, dilation = 2)
+        self.batch_1_2 = nn.GroupNorm(n_groups, 128)
 
-        self.conv_3 = nn.Conv1d(512, 1024, kernel_size = 3, padding = 0)
-        #self.batch_3 = nn.GroupNorm(n_groups, 1024)
-        self.pool_3 = nn.MaxPool1d(kernel_size = 1)
 
-        #self.conv_4 = nn.Conv1d(64, 32, kernel_size = 5)
-        #self.batch_4 = nn.BatchNorm1d(256)
-        #self.pool_4 = nn.MaxPool1d(kernel_size = 1)
+        # ENCODER BOTTOM LEVEL
+        self.pool_1 = nn.MaxPool1d(kernel_size = 4)
 
-        self.num_channels = 1024
+        self.conv_2_1 = nn.Conv1d(128, 256, kernel_size = 5, dilation = 2, padding = 'same')
+        self.batch_2_1 = nn.GroupNorm(n_groups, 256)
+
+        self.conv_2_2 = nn.Conv1d(256, 256, kernel_size = 5, dilation = 2, padding = 'same')
+        self.batch_2_2 = nn.GroupNorm(n_groups, 256)
+
+        
+        # DECODER GROUND LEVEL (LEVEL 1)
+        # UPSAMPLING
+        self.upsample_1 = nn.Upsample(scale_factor = 4, mode = 'nearest')
+        self.conv_1_3 = nn.Conv1d(256, 128, kernel_size = 4, dilation = 1, padding = 'same')
+
+        # 
+        self.conv_1_4 = nn.Conv1d(256, 128, kernel_size = 5, dilation = 1)
+        self.batch_1_4 = nn.GroupNorm(n_groups, 128)
+
+        self.conv_1_5 = nn.Conv1d(128, 128, kernel_size = 5, dilation = 1)
+        self.batch_1_5 = nn.GroupNorm(n_groups, 128)
+        
+
+        self.num_channels = 128
     def forward(self, tensor_list: NestedTensor):
-        x_1 = self.pool_1((F.relu(self.conv_1(tensor_list.tensors))))
-        x_2 = self.pool_2((F.relu(self.conv_2(x_1))))
-        x_3 = self.pool_3((F.relu(self.conv_3(x_2))))
+        # GROUND LEVEL FORWARD
+        level_1 = self.batch_1_1(F.relu(self.conv_1_1(tensor_list.tensors)))
+        level_1 = self.batch_1_2(F.relu(self.conv_1_2(level_1)))
+
+        # POOLING AND BOTTOM LEVEL
+        level_1_down = self.pool_1(level_1)
+        level_2 = self.batch_2_1(F.relu(self.conv_2_1(level_1_down)))
+        level_2 = self.batch_2_2(F.relu(self.conv_2_2(level_2)))
+
+        # UPSAMPLING AND FEATURE FUSION
+        level_2_upsampled = self.upsample_1(level_2)
+        level_1_up = self.conv_1_3(level_2_upsampled)
+        
+        dec_level_1 = torch.cat((level_1, level_1_up), 1)
+
+        dec_level_1 = self.batch_1_4(F.relu(self.conv_1_4(dec_level_1)))
+        dec_level_1 = self.batch_1_5(F.relu(self.conv_1_5(dec_level_1)))
 
         #print(x_1.shape)
-        #print(x_2.shape)
+        #print(x_3.shape)
 
         #features = torch.cat((x_1, x_2, x_3), 1)
         #features = self.pool_4(self.batch_4(F.relu(self.conv_4(features))))
@@ -69,7 +98,7 @@ class MJ_CONV2(nn.Module):
         
         #print(x_3.shape)
         
-        features = x_3
+        features = dec_level_1
 
         #xs = self.body(tensor_list.tensors)
         out: Dict[str, NestedTensor] = {}
@@ -83,7 +112,7 @@ class MJ_CONV2(nn.Module):
 
 
 class building_block(nn.Module):
-    def __init__(self, in_channels, out_channels, k_size = 1, pool_k_size = 1,conv_padd = 1):
+    def __init__(self, in_channels, out_channels, k_size = 1, pool_k_size = 1,conv_padd = 0):
         super(building_block, self).__init__()
 
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size = k_size, padding = conv_padd)
@@ -100,8 +129,8 @@ def build_backbone(args):
     position_embedding = build_position_encoding(args)
     return_interm_layers = args.masks
     #backbone = Backbone(args.backbone, train_backbone, return_interm_layers, args.dilation)
-    backbone2 = MJ_CONV2()
-    model = Joiner(backbone2, position_embedding)
+    backbone = Backbone()
+    model = Joiner(backbone, position_embedding)
     #model.num_channels = backbone.num_channels
-    model.num_channels = 1024
+    model.num_channels = 128
     return model
