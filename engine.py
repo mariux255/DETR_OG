@@ -185,7 +185,7 @@ def f1_score(outputs, targets):
     total_spindle_count = 0
     for i in range(outputs['pred_logits'].shape[0]):
         probas = outputs['pred_logits'].softmax(-1)[i,:,:-1]
-        keep = probas.max(-1).values > 0.8
+        keep = probas.max(-1).values > 0.7
         kept_boxes = outputs['pred_boxes'][i,keep]
         target_bbox = targets[i]['boxes']
         

@@ -1,4 +1,12 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# ------------------------------------------------------------------------
+# Conditional DETR
+# Copyright (c) 2021 Microsoft. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
+# ------------------------------------------------------------------------
+# Copied from DETR (https://github.com/facebookresearch/detr)
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+# ------------------------------------------------------------------------
+
 """
 Misc functions, including distributed helpers.
 
@@ -10,7 +18,6 @@ import time
 from collections import defaultdict, deque
 import datetime
 import pickle
-from packaging import version
 from typing import Optional, List
 
 import torch
@@ -19,7 +26,7 @@ from torch import Tensor
 
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
-if version.parse(torchvision.__version__) < version.parse('0.7'):
+if float(torchvision.__version__.split(".")[1]) < 7.0:
     from torchvision.ops import _new_empty_tensor
     from torchvision.ops.misc import _output_size
 
@@ -346,6 +353,7 @@ def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
     return NestedTensor(tensor, mask)
 
 
+
 # _onnx_nested_tensor_from_tensor_list() is an implementation of
 # nested_tensor_from_tensor_list() that is supported by ONNX tracing.
 @torch.jit.unused
@@ -472,7 +480,7 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
     This will eventually be supported natively by PyTorch, and this
     class can go away.
     """
-    if version.parse(torchvision.__version__) < version.parse('0.7'):
+    if float(torchvision.__version__.split(".")[1]) < 7.0:
         if input.numel() > 0:
             return torch.nn.functional.interpolate(
                 input, size, scale_factor, mode, align_corners
@@ -483,3 +491,9 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
         return _new_empty_tensor(input, output_shape)
     else:
         return torchvision.ops.misc.interpolate(input, size, scale_factor, mode, align_corners)
+
+def inverse_sigmoid(x, eps=1e-5):
+    x = x.clamp(min=0, max=1)
+    x1 = x.clamp(min=eps)
+    x2 = (1 - x).clamp(min=eps)
+    return torch.log(x1/x2)
