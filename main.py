@@ -23,13 +23,13 @@ import torch.nn as nn
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
-    parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--lr_backbone', default=1e-4, type=float)
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--lr', default=0, type=float)
+    parser.add_argument('--lr_backbone', default=1e-3, type=float)
+    parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=400, type=int)
-    parser.add_argument('--lr_drop', default=800, type=int)
-    parser.add_argument('--clip_max_norm', default=0, type=float,
+    parser.add_argument('--epochs', default=700, type=int)
+    parser.add_argument('--lr_drop', default=1200, type=int)
+    parser.add_argument('--clip_max_norm', default=0.01, type=float,
                         help='gradient clipping max norm')
 
     # Model parameters
@@ -44,19 +44,19 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
-    parser.add_argument('--enc_layers', default=10, type=int,
+    parser.add_argument('--enc_layers', default=6, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=10, type=int,
+    parser.add_argument('--dec_layers', default=6, type=int,
                         help="Number of decoding layers in the transformer")
     parser.add_argument('--dim_feedforward', default=2048, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=256, type=int,
+    parser.add_argument('--hidden_dim', default=64, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0, type=float,
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=1, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=300, type=int,
+    parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -67,22 +67,20 @@ def get_args_parser():
     # Loss
     parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
                         help="Disables auxiliary decoding losses (loss at each layer)")
-    
     # * Matcher
-    parser.add_argument('--set_cost_class', default=2, type=float,
+    parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost")
     parser.add_argument('--set_cost_bbox', default=5, type=float,
                         help="L1 box coefficient in the matching cost")
     parser.add_argument('--set_cost_giou', default=2, type=float,
                         help="giou box coefficient in the matching cost")
-
     # * Loss coefficients
     parser.add_argument('--mask_loss_coef', default=1, type=float)
     parser.add_argument('--dice_loss_coef', default=1, type=float)
-    parser.add_argument('--cls_loss_coef', default=2, type=float)
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
-    parser.add_argument('--focal_alpha', default=0.25, type=float)
+    parser.add_argument('--eos_coef', default=0.01, type=float,
+                        help="Relative classification weight of the no-object class")
 
     # dataset parameters
     parser.add_argument('--dataset_file', default='coco')
@@ -99,7 +97,7 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
-    parser.add_argument('--num_workers', default=2, type=int)
+    parser.add_argument('--num_workers', default=6, type=int)
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -199,7 +197,7 @@ def main(args):
 
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
                                   weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 1000, gamma = 0.1)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 250, gamma = 0.1)
     
     #lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
                     #max_lr = 1e-5, # Upper learning rate boundaries in the cycle for each parameter group
@@ -230,31 +228,31 @@ def main(args):
             model, criterion, data_loader_train, optimizer, lr_scheduler, device, epoch,
             args.clip_max_norm)
         #lr_scheduler.step()
-        if epoch == 1000:
+        if epoch == 200:
             # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-4
+            optimizer.param_groups[0]['lr'] = 1e-6
             # Lr backbone
-            optimizer.param_groups[1]['lr'] = 1e-4
+            optimizer.param_groups[1]['lr'] = 1e-12
             print("LR of model changed to ", optimizer.param_groups[0]['lr'])
             print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
 
-        if epoch == 1000:
+        if epoch == 210:
             # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-5
+            optimizer.param_groups[0]['lr'] = 1e-4
+            # Lr backbone
+            optimizer.param_groups[1]['lr'] = 1e-8
+            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
+            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
+
+        if epoch == 230:
+            # Lr transformer
+            optimizer.param_groups[0]['lr'] = 1e-4
             # Lr backbone
             optimizer.param_groups[1]['lr'] = 1e-5
             print("LR of model changed to ", optimizer.param_groups[0]['lr'])
             print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
 
-        if epoch == 1000:
-            # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-4
-            # Lr backbone
-            optimizer.param_groups[1]['lr'] = 1e-5
-            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
-            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
-
-        if epoch == 1000:
+        if epoch == 600:
             # Lr transformer
             optimizer.param_groups[0]['lr'] = 1e-5
             # Lr backbone
