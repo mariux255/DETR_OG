@@ -137,8 +137,8 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         #     panoptic_evaluator.update(res_pano)
 
     
-    f1_calculate(model, device, data_loader)
-    
+    F1, TP, total_pred_count, total_spindle_count = f1_calculate(model, device, data_loader)
+    row = {'F1': F1, 'TP': TP, 'Total pred': total_pred_count, 'Total spindle': total_spindle_count}
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -165,7 +165,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_all'] = panoptic_res["All"]
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
-    return stats, coco_evaluator
+    return row, stats, coco_evaluator
 
 
 def pred_stats(outputs, targets):

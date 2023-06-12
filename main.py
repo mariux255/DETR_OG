@@ -28,7 +28,7 @@ def get_args_parser():
     parser.add_argument('--lr_backbone', default=1e-4, type=float)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=10, type=int)
+    parser.add_argument('--epochs', default=5, type=int)
     parser.add_argument('--lr_drop', default=1200, type=int)
     parser.add_argument('--clip_max_norm', default=0.01, type=float,
                         help='gradient clipping max norm')
@@ -227,7 +227,9 @@ def main(args):
     print("Start training")
     start_time = time.time()
 
-    f1_df = pd.DataFrame()
+    f1_df_train = pd.DataFrame()
+
+    f1_df_val = pd.DataFrame()
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
@@ -237,7 +239,7 @@ def main(args):
             model, criterion, data_loader_train, optimizer, lr_scheduler, device, epoch,
             args.clip_max_norm)
 
-        f1_df = f1_df.append(f1_stats, ignore_index = True)
+        f1_df_train = f1_df_train.append(f1_stats, ignore_index = True)
 
         #print(f1_df)        
         #lr_scheduler.step()
@@ -272,9 +274,11 @@ def main(args):
         #             'args': args,
         #         }, checkpoint_path)
 
-        test_stats, coco_evaluator = evaluate(
+        f1_stats, test_stats, coco_evaluator = evaluate(
             model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
         )
+
+        f1_df_val = f1_df_val.append(f1_stats, ignore_index = True)
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
@@ -296,7 +300,8 @@ def main(args):
                         torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                    output_dir / "eval" / name)
 
-    f1_df.to_csv('/home/s174411/code/DETR_OG/logs/f1_stats.csv', index=False)  
+    f1_df_train.to_csv('/home/s174411/code/DETR_OG/logs/f1_train.csv', index=False)
+    f1_df_val.to_csv('/home/s174411/code/DETR_OG/logs/f1_val.csv', index=False)    
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
