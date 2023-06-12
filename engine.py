@@ -26,11 +26,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
     batch_counter = 0
-    f1_mean_run = []
-    f1_std_run = []
-    TP_run = []
-    FP_run = []
-    total_spindle_run = []
+
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -70,21 +66,15 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(class_error=loss_dict_reduced['class_error'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
-        f1_mean, f1_std, TP, FP, total_spindle_count = f1_score(outputs, targets)
-        f1_mean_run.append(f1_mean)
-        f1_std_run.append(f1_std)
-        TP_run.append(TP)
-        FP_run.append(FP)
-        total_spindle_run.append(total_spindle_count)
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     
     print("Averaged stats:", metric_logger)
 
-    print("F1 MEAN:", sum(f1_mean_run)/len(f1_mean_run), " F1 STD:", sum(f1_std_run)/len(f1_std_run), " TP:", sum(TP_run), " FP:", sum(FP_run),
-     " Number of spindles:", sum(total_spindle_run))
+    F1, TP, total_pred_count, total_spindle_count = f1_calculate(model, device, data_loader)
+    row = {'F1': F1, 'TP': TP, 'Total pred': total_pred_count, 'Total spindle': total_spindle_count}
 
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    return row, {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
 @torch.no_grad()
@@ -146,6 +136,9 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
         #     panoptic_evaluator.update(res_pano)
 
+    
+    f1_calculate(model, device, data_loader)
+    
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -175,7 +168,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     return stats, coco_evaluator
 
 
-def f1_score(outputs, targets):
+def pred_stats(outputs, targets):
     
     # Loop through batches to compute F1 score through training.
 
@@ -183,6 +176,7 @@ def f1_score(outputs, targets):
     F1_list = []
     temp_tp = 0
     total_spindle_count = 0
+    total_pred_count = 0
     for i in range(outputs['pred_logits'].shape[0]):
         probas = outputs['pred_logits'].softmax(-1)[i,:,:-1]
         keep = probas.max(-1).values > 0.8
@@ -190,7 +184,6 @@ def f1_score(outputs, targets):
         target_bbox = targets[i]['boxes']
         
         TP = 0
-        total_pred_count = 0
         
         target_bbox = target_bbox.cpu()
         target_bbox = target_bbox.numpy()
@@ -203,6 +196,9 @@ def f1_score(outputs, targets):
             
             best_match = -1
             
+            if len(kept_boxes) == 0:
+                continue
+            
             for j,out_box in enumerate(kept_boxes):
                 out_box_start = out_box[0] - out_box[1]/2
                 out_box_end = out_box[0] + out_box[1]/2
@@ -210,33 +206,75 @@ def f1_score(outputs, targets):
                 if ((out_box_end > tar_box_start) and (out_box_start <= tar_box_start)):
                     if iou(out_box, tar_box) > iou(kept_boxes[best_match], tar_box):
                         best_match = j
-            if len(kept_boxes) == 0:
-                continue
-            if overlap(kept_boxes[best_match],tar_box,0.2):
+            
+            if iou(kept_boxes[best_match],tar_box) > 0.2:
                 TP +=1
             
 
-        FP = total_pred_count - TP
-        FN = total_spindle_count - TP
+        # FP = total_pred_count - TP
+        # FN = total_spindle_count - TP
         
-        if (TP + FP) == 0:
-            PRECISION = TP
-        else:
-            PRECISION = (TP)/(TP + FP)
+        # if (TP + FP) == 0:
+        #     PRECISION = TP
+        # else:
+        #     PRECISION = (TP)/(TP + FP)
         
-        RECALL = (TP)/(TP+FN)
+        # RECALL = (TP)/(TP+FN)
 
-        if (PRECISION + RECALL) == 0:
-            F1_list.append(0)
-        else:
-            F1_list.append((2 * PRECISION * RECALL)/(PRECISION + RECALL))
+        # if (PRECISION + RECALL) == 0:
+        #     F1_list.append(0)
+        # else:
+        #     F1_list.append((2 * PRECISION * RECALL)/(PRECISION + RECALL))
         
         temp_tp += TP
 
 
-    F1_list = np.asarray(F1_list)
+    #F1_list = np.asarray(F1_list)
     #print("F1 MEAN:", np.mean(F1_list), " F1 STD:", np.std(F1_list), " TP:", temp_tp, " FP:", FP, " Number of spindles:", total_spindle_count)
-    return (np.mean(F1_list), np.std(F1_list), temp_tp, FP, total_spindle_count)
+    return (temp_tp, total_pred_count, total_spindle_count)
+
+def f1_calculate(model, device, dataloader):
+    TP = 0
+    total_pred_count = 0
+    total_spindle_count = 0
+    for samples, targets in dataloader:
+        samples = samples.to(device)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+        outputs = model(samples)
+
+        temp_tp, temp_pred_count, temp_spindle_count = pred_stats(outputs, targets)
+        TP += temp_tp
+        total_pred_count += temp_pred_count
+        total_spindle_count += temp_spindle_count
+    
+    f1 = f1_score(TP, total_pred_count, total_spindle_count)
+
+    print("F1 score:", f1, " True positives:", TP, " Total predictions:", total_pred_count, " Total spindles:", total_spindle_count)
+
+    return (f1, TP, total_pred_count, total_spindle_count)
+        
+
+
+def f1_score(TP, total_pred_count, total_spindle_count):
+    
+    FP = total_pred_count - TP
+    FN = total_spindle_count - TP
+        
+    if (TP + FP) == 0:
+        PRECISION = TP
+    else:
+        PRECISION = (TP)/(TP + FP)
+        
+    RECALL = (TP)/(TP+FN)
+
+    if (PRECISION + RECALL) == 0:
+            F1 = 0
+    else:
+         F1 = (2 * PRECISION * RECALL)/(PRECISION + RECALL)
+
+    return F1
+
 
 
 def iou(out,tar):

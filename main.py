@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
@@ -23,11 +24,11 @@ import torch.nn as nn
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
-    parser.add_argument('--lr', default=0, type=float)
-    parser.add_argument('--lr_backbone', default=1e-3, type=float)
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--lr_backbone', default=1e-4, type=float)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=700, type=int)
+    parser.add_argument('--epochs', default=10, type=int)
     parser.add_argument('--lr_drop', default=1200, type=int)
     parser.add_argument('--clip_max_norm', default=0.01, type=float,
                         help='gradient clipping max norm')
@@ -44,17 +45,17 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
-    parser.add_argument('--enc_layers', default=6, type=int,
+    parser.add_argument('--enc_layers', default=8, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=6, type=int,
+    parser.add_argument('--dec_layers', default=8, type=int,
                         help="Number of decoding layers in the transformer")
     parser.add_argument('--dim_feedforward', default=2048, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=64, type=int,
+    parser.add_argument('--hidden_dim', default=32, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0, type=float,
                         help="Dropout applied in the transformer")
-    parser.add_argument('--nheads', default=1, type=int,
+    parser.add_argument('--nheads', default=4, type=int,
                         help="Number of attention heads inside the transformer's attentions")
     parser.add_argument('--num_queries', default=100, type=int,
                         help="Number of query slots")
@@ -68,17 +69,17 @@ def get_args_parser():
     parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
                         help="Disables auxiliary decoding losses (loss at each layer)")
     # * Matcher
-    parser.add_argument('--set_cost_class', default=1, type=float,
+    parser.add_argument('--set_cost_class', default=3, type=float,
                         help="Class coefficient in the matching cost")
-    parser.add_argument('--set_cost_bbox', default=5, type=float,
+    parser.add_argument('--set_cost_bbox', default=1, type=float,
                         help="L1 box coefficient in the matching cost")
-    parser.add_argument('--set_cost_giou', default=2, type=float,
+    parser.add_argument('--set_cost_giou', default=4, type=float,
                         help="giou box coefficient in the matching cost")
     # * Loss coefficients
     parser.add_argument('--mask_loss_coef', default=1, type=float)
-    parser.add_argument('--dice_loss_coef', default=1, type=float)
-    parser.add_argument('--bbox_loss_coef', default=5, type=float)
-    parser.add_argument('--giou_loss_coef', default=2, type=float)
+    parser.add_argument('--dice_loss_coef', default=3, type=float)
+    parser.add_argument('--bbox_loss_coef', default=1, type=float)
+    parser.add_argument('--giou_loss_coef', default=4, type=float)
     parser.add_argument('--eos_coef', default=0.01, type=float,
                         help="Relative classification weight of the no-object class")
 
@@ -88,7 +89,7 @@ def get_args_parser():
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
-    parser.add_argument('--output_dir', default='',
+    parser.add_argument('--output_dir', default='/home/s174411/code/DETR_OG/logs',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
@@ -141,12 +142,14 @@ def main(args):
     print('number of params:', n_parameters)
 
     param_dicts = [
-        {"params": [p for n, p in model_without_ddp.named_parameters() if ("backbone" or "class_embed" or "bbox_embed" or "query") not in n and p.requires_grad]},
+        {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
         {
-            "params": [p for n, p in model_without_ddp.named_parameters() if ("backbone" or "class_embed" or "bbox_embed" or "query") in n and p.requires_grad],
+            "params": [p for n, p in model_without_ddp.named_parameters() if "backbone" in n and p.requires_grad],
             "lr": args.lr_backbone,
         },
     ]
+
+    # or "class_embed" or "bbox_embed" or "query"
 
     n_list = []
     for n, p in model_without_ddp.named_parameters():
@@ -159,8 +162,10 @@ def main(args):
     #dataset_train, dataset_val = torch.utils.data.random_split(dataset, [train_size,val_size])
     #dataset_val = dataset_train
 
-    dataset_train = dreams_dataset(input_path = '/scratch/s174411/FIL_CEN/TRAIN/input/', label_path = '/scratch/s174411/FIL_CEN/TRAIN/labels/')
-    dataset_val = dreams_dataset(input_path = '/scratch/s174411/FIL_CEN/VAL/input/', label_path = '/scratch/s174411/FIL_CEN/VAL/labels/')
+    dataset_train = dreams_dataset(input_path = '/scratch/s174411/sumo_split_fix_30/TRAIN/input/', label_path = '/scratch/s174411/sumo_split_fix_30/TRAIN/labels/')
+    dataset_val = dreams_dataset(input_path = '/scratch/s174411/sumo_split_fix_30/VAL/input/', label_path = '/scratch/s174411/sumo_split_fix_30/VAL/labels/')
+
+    output_dir = Path(args.output_dir)
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -197,7 +202,7 @@ def main(args):
 
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
                                   weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 250, gamma = 0.1)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 1000, gamma = 0.1)
     
     #lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
                     #max_lr = 1e-5, # Upper learning rate boundaries in the cycle for each parameter group
@@ -218,33 +223,33 @@ def main(args):
     for g in optimizer.param_groups:
         print(g['lr'])
 
+    print(args.output_dir)
     print("Start training")
     start_time = time.time()
+
+    f1_df = pd.DataFrame()
+
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
         
-        train_stats = train_one_epoch(
+        f1_stats, train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, lr_scheduler, device, epoch,
             args.clip_max_norm)
+
+        f1_df = f1_df.append(f1_stats, ignore_index = True)
+
+        #print(f1_df)        
         #lr_scheduler.step()
-        if epoch == 200:
+        if epoch == 1500:
             # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-6
+            optimizer.param_groups[0]['lr'] = 1e-3
             # Lr backbone
-            optimizer.param_groups[1]['lr'] = 1e-12
+            optimizer.param_groups[1]['lr'] = 1e-3
             print("LR of model changed to ", optimizer.param_groups[0]['lr'])
             print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
-
-        if epoch == 210:
-            # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-4
-            # Lr backbone
-            optimizer.param_groups[1]['lr'] = 1e-8
-            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
-            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
-
-        if epoch == 230:
+        
+        if epoch == 1500:
             # Lr transformer
             optimizer.param_groups[0]['lr'] = 1e-4
             # Lr backbone
@@ -252,28 +257,20 @@ def main(args):
             print("LR of model changed to ", optimizer.param_groups[0]['lr'])
             print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
 
-        if epoch == 600:
-            # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-5
-            # Lr backbone
-            optimizer.param_groups[1]['lr'] = 1e-6
-            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
-            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
-
-
-        if args.output_dir:
-            checkpoint_paths = [output_dir / 'checkpoint.pth']
-            # extra checkpoint before LR drop and every 100 epochs
-            if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 100 == 0:
-                checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
-            for checkpoint_path in checkpoint_paths:
-                utils.save_on_master({
-                    'model': model_without_ddp.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'lr_scheduler': lr_scheduler.state_dict(),
-                    'epoch': epoch,
-                    'args': args,
-                }, checkpoint_path)
+       
+        # if args.output_dir:
+        #     checkpoint_paths = [output_dir / 'checkpoint.pth']
+        #     # extra checkpoint before LR drop and every 100 epochs
+        #     if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 100 == 0:
+        #         checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
+        #     for checkpoint_path in checkpoint_paths:
+        #         utils.save_on_master({
+        #             'model': model_without_ddp.state_dict(),
+        #             'optimizer': optimizer.state_dict(),
+        #             'lr_scheduler': lr_scheduler.state_dict(),
+        #             'epoch': epoch,
+        #             'args': args,
+        #         }, checkpoint_path)
 
         test_stats, coco_evaluator = evaluate(
             model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
@@ -298,6 +295,8 @@ def main(args):
                     for name in filenames:
                         torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                    output_dir / "eval" / name)
+
+    f1_df.to_csv('/home/s174411/code/DETR_OG/logs/f1_stats.csv', index=False)  
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

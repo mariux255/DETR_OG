@@ -1,5 +1,5 @@
 import torch
-from scipy.signal import butter, sosfilt, sosfreqz
+from scipy.signal import butter, sosfilt, sosfreqz, resample, sosfiltfilt
 import scipy.io
 import random
 from torch.utils.data import Dataset, DataLoader
@@ -9,6 +9,18 @@ import matplotlib.image as mpimg
 from torchvision.io import read_image
 import json
 import cv2
+
+def butter_bandpass(lowcut, highcut, fs, order=5):
+        nyq = 0.5 * fs
+        low = lowcut / nyq
+        high = highcut / nyq
+        sos = butter(order, [low, high], analog=False, btype='band', output='sos')
+        return sos
+
+def butter_bandpass_filter(data, lowcut, highcut, fs, order=2):
+        sos = butter_bandpass(lowcut, highcut, fs, order=order)
+        y = sosfiltfilt(sos, data)
+        return y
 
 
 class dreams_dataset(Dataset):
@@ -45,13 +57,15 @@ class dreams_dataset(Dataset):
 
     def __getitem__(self, idx):
         #print(self.input_dict[idx])
-        food, labels = self.master_path_list[idx]
-        fourier_array = np.load(food)
+        model_input, labels = self.master_path_list[idx]
+        eeg_input = np.load(model_input)
+        eeg_input = resample(eeg_input, 100*30)
+        eeg_input = butter_bandpass_filter(eeg_input, 0.3, 30, 100, 10)
         # Standardize
-        fourier_array = (fourier_array - np.mean(fourier_array))/np.std(fourier_array)
+        eeg_input = (eeg_input - np.mean(eeg_input))/np.std(eeg_input)
 
-        fourier_array = torch.tensor(fourier_array)
-        fourier_array = fourier_array[None, :]
+        eeg_input = torch.FloatTensor(eeg_input)
+        eeg_input = eeg_input[None, :]
 
         #print('dataloader shape')
 
@@ -70,4 +84,4 @@ class dreams_dataset(Dataset):
         #image = torch.tensor(image)
         #image = image.view(3,image.shape[1],image.shape[0])
        
-        return fourier_array, labels
+        return eeg_input, labels

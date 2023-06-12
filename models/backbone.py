@@ -40,36 +40,36 @@ class Backbone(nn.Module):
         
         # ENCODER GROUND LEVEL (LEVEL 1)
         self.conv_1_1 = nn.Conv1d(1, 64, kernel_size = 5, stride = 2, dilation = 2)
-        self.batch_1_1 = nn.GroupNorm(n_groups, 64)
+        self.batch_1_1 = nn.BatchNorm1d(64)
 
-        self.conv_1_2 = nn.Conv1d(64, 128, kernel_size = 5, dilation = 2)
-        self.batch_1_2 = nn.GroupNorm(n_groups, 128)
+        self.conv_1_2 = nn.Conv1d(64, 64, kernel_size = 5, dilation = 2)
+        self.batch_1_2 = nn.BatchNorm1d(64)
 
 
         # ENCODER BOTTOM LEVEL
-        self.pool_1 = nn.MaxPool1d(kernel_size = 4)
+        self.pool_1 = nn.MaxPool1d(kernel_size = 2)
 
-        self.conv_2_1 = nn.Conv1d(128, 256, kernel_size = 5, dilation = 2, padding = 'same')
-        self.batch_2_1 = nn.GroupNorm(n_groups, 256)
+        self.conv_2_1 = nn.Conv1d(64, 128, kernel_size = 5, dilation = 2, padding = 'same')
+        self.batch_2_1 = nn.BatchNorm1d(128)
 
-        self.conv_2_2 = nn.Conv1d(256, 256, kernel_size = 5, dilation = 2, padding = 'same')
-        self.batch_2_2 = nn.GroupNorm(n_groups, 256)
+        self.conv_2_2 = nn.Conv1d(128, 128, kernel_size = 5, dilation = 2, padding = 'same')
+        self.batch_2_2 = nn.BatchNorm1d(128)
 
         
         # DECODER GROUND LEVEL (LEVEL 1)
         # UPSAMPLING
-        self.upsample_1 = nn.Upsample(scale_factor = 4, mode = 'nearest')
-        self.conv_1_3 = nn.Conv1d(256, 128, kernel_size = 4, dilation = 1, padding = 'same')
+        self.upsample_1 = nn.Upsample(scale_factor = 2, mode = 'nearest')
+        self.conv_1_3 = nn.Conv1d(128, 64, kernel_size = 2, dilation = 1, padding = 'same')
 
         # 
-        self.conv_1_4 = nn.Conv1d(256, 128, kernel_size = 5, dilation = 1)
-        self.batch_1_4 = nn.GroupNorm(n_groups, 128)
+        self.conv_1_4 = nn.Conv1d(128, 64, kernel_size = 5, dilation = 1)
+        self.batch_1_4 = nn.BatchNorm1d(64)
 
-        self.conv_1_5 = nn.Conv1d(128, 128, kernel_size = 5, dilation = 1)
-        self.batch_1_5 = nn.GroupNorm(n_groups, 128)
+        self.conv_1_5 = nn.Conv1d(64, 64, kernel_size = 5, dilation = 1)
+        self.batch_1_5 = nn.BatchNorm1d(64)
         
 
-        self.num_channels = 128
+        self.num_channels = 64
     def forward(self, tensor_list: NestedTensor):
         # GROUND LEVEL FORWARD
         level_1 = self.batch_1_1(F.relu(self.conv_1_1(tensor_list.tensors)))
@@ -132,5 +132,5 @@ def build_backbone(args):
     backbone = Backbone()
     model = Joiner(backbone, position_embedding)
     #model.num_channels = backbone.num_channels
-    model.num_channels = 128
+    model.num_channels = 64
     return model
