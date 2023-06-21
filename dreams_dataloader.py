@@ -59,8 +59,8 @@ class dreams_dataset(Dataset):
         #print(self.input_dict[idx])
         model_input, labels = self.master_path_list[idx]
         eeg_input = np.load(model_input)
-        eeg_input = resample(eeg_input, 100*30)
-        eeg_input = butter_bandpass_filter(eeg_input, 0.3, 30, 100, 10)
+        #eeg_input = resample(eeg_input, 100*30)
+        #eeg_input = butter_bandpass_filter(eeg_input, 0.3, 30, 100, 10)
         # Standardize
         eeg_input = (eeg_input - np.mean(eeg_input))/np.std(eeg_input)
 

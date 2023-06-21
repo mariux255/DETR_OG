@@ -24,13 +24,13 @@ import torch.nn as nn
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
-    parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--lr', default=1e-3, type=float)
     parser.add_argument('--lr_backbone', default=1e-4, type=float)
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--batch_size', default=16, type=int)
     parser.add_argument('--weight_decay', default=0, type=float)
-    parser.add_argument('--epochs', default=600, type=int)
+    parser.add_argument('--epochs', default=300, type=int)
     parser.add_argument('--lr_drop', default=1200, type=int)
-    parser.add_argument('--clip_max_norm', default=0.01, type=float,
+    parser.add_argument('--clip_max_norm', default=0, type=float,
                         help='gradient clipping max norm')
 
     # Model parameters
@@ -45,19 +45,19 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
-    parser.add_argument('--enc_layers', default=8, type=int,
+    parser.add_argument('--enc_layers', default=4, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=8, type=int,
+    parser.add_argument('--dec_layers', default=4, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--dim_feedforward', default=1024, type=int,
+    parser.add_argument('--dim_feedforward', default=32, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
-    parser.add_argument('--hidden_dim', default=32, type=int,
+    parser.add_argument('--hidden_dim', default=16, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0, type=float,
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=4, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=40, type=int,
+    parser.add_argument('--num_queries', default=15, type=int,
                         help="Number of query slots")
     parser.add_argument('--pre_norm', action='store_true')
 
@@ -69,7 +69,7 @@ def get_args_parser():
     parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
                         help="Disables auxiliary decoding losses (loss at each layer)")
     # * Matcher
-    parser.add_argument('--set_cost_class', default=1, type=float,
+    parser.add_argument('--set_cost_class', default=2, type=float,
                         help="Class coefficient in the matching cost")
     parser.add_argument('--set_cost_bbox', default=5, type=float,
                         help="L1 box coefficient in the matching cost")
@@ -80,7 +80,7 @@ def get_args_parser():
     parser.add_argument('--dice_loss_coef', default=1, type=float)
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
-    parser.add_argument('--eos_coef', default=0.01, type=float,
+    parser.add_argument('--eos_coef', default=0.1, type=float,
                         help="Relative classification weight of the no-object class")
 
     # dataset parameters
@@ -162,8 +162,8 @@ def main(args):
     #dataset_train, dataset_val = torch.utils.data.random_split(dataset, [train_size,val_size])
     #dataset_val = dataset_train
 
-    dataset_train = dreams_dataset(input_path = '/scratch/s174411/sumo_split_fix_30/TRAIN/input/', label_path = '/scratch/s174411/sumo_split_fix_30/TRAIN/labels/')
-    dataset_val = dreams_dataset(input_path = '/scratch/s174411/sumo_split_fix_30/VAL/input/', label_path = '/scratch/s174411/sumo_split_fix_30/VAL/labels/')
+    dataset_train = dreams_dataset(input_path = '/scratch/s174411/train_val_test_30/TRAIN/input/', label_path = '/scratch/s174411/train_val_test_30/TRAIN/labels/')
+    dataset_val = dreams_dataset(input_path = '/scratch/s174411/train_val_test_30/VAL/input/', label_path = '/scratch/s174411/train_val_test_30/VAL/labels/')
 
     output_dir = Path(args.output_dir)
 
@@ -243,19 +243,19 @@ def main(args):
 
         #print(f1_df)        
         #lr_scheduler.step()
-        if epoch == 1500:
-            # Lr transformer
-            optimizer.param_groups[0]['lr'] = 1e-3
-            # Lr backbone
-            optimizer.param_groups[1]['lr'] = 1e-3
-            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
-            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
-        
-        if epoch == 1500:
+        if epoch == 200:
             # Lr transformer
             optimizer.param_groups[0]['lr'] = 1e-4
             # Lr backbone
             optimizer.param_groups[1]['lr'] = 1e-5
+            print("LR of model changed to ", optimizer.param_groups[0]['lr'])
+            print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
+        
+        if epoch == 260:
+            # Lr transformer
+            optimizer.param_groups[0]['lr'] = 1e-5
+            # Lr backbone
+            optimizer.param_groups[1]['lr'] = 1e-6
             print("LR of model changed to ", optimizer.param_groups[0]['lr'])
             print("LR of backbone changed to ", optimizer.param_groups[1]['lr'])
 
@@ -302,6 +302,7 @@ def main(args):
 
     f1_df_train.to_csv('/home/s174411/code/DETR_OG/logs/f1_train.csv', index=False)
     f1_df_val.to_csv('/home/s174411/code/DETR_OG/logs/f1_val.csv', index=False)    
+    torch.save(model, '/home/s174411/code/DETR_OG/logs/og_detr.pt')
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

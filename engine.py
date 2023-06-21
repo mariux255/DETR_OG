@@ -177,10 +177,26 @@ def pred_stats(outputs, targets):
     temp_tp = 0
     total_spindle_count = 0
     total_pred_count = 0
-    for i in range(outputs['pred_logits'].shape[0]):
-        probas = outputs['pred_logits'].softmax(-1)[i,:,:-1]
-        keep = probas.max(-1).values > 0.8
-        kept_boxes = outputs['pred_boxes'][i,keep]
+
+    out_logits = outputs['pred_logits']
+    prob = out_logits.sigmoid()
+    topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), 3, dim=1)
+    scores = topk_values
+    #print(torch.mean(scores, 0))
+    topk_boxes = topk_indexes // out_logits.shape[2]
+        
+    boxes = outputs['pred_boxes'][:,:,:].detach().cpu().numpy()
+    topk_indexes = topk_boxes.cpu().numpy()
+    #print(topk_indexes.shape)
+    #print(boxes.shape)
+
+
+    #print(scores)
+    #print(topk_boxes[0,0])
+    #print(outputs['pred_boxes'][0,topk_boxes[0,0]])
+    for i in range(topk_indexes.shape[0]):
+        idxs = topk_indexes[i,:]
+        kept_boxes = boxes[i, idxs]
         target_bbox = targets[i]['boxes']
         
         TP = 0
@@ -189,6 +205,7 @@ def pred_stats(outputs, targets):
         target_bbox = target_bbox.numpy()
         total_spindle_count += target_bbox.shape[0]
         total_pred_count += len(kept_boxes)
+        kept_boxes = np.asarray(kept_boxes)
         for k in range(target_bbox.shape[0]):
             tar_box = target_bbox[k,:]
             tar_box_start = tar_box[0] - tar_box[1]/2
@@ -203,12 +220,13 @@ def pred_stats(outputs, targets):
                 out_box_start = out_box[0] - out_box[1]/2
                 out_box_end = out_box[0] + out_box[1]/2
 
-                if ((out_box_end > tar_box_start) and (out_box_start <= tar_box_start)):
-                    if iou(out_box, tar_box) > iou(kept_boxes[best_match], tar_box):
-                        best_match = j
+                if overlap(out_box, tar_box) > overlap(kept_boxes[best_match], tar_box):
+                    best_match = j
             
-            if iou(kept_boxes[best_match],tar_box) > 0.2:
-                TP +=1
+            if (overlap(kept_boxes[best_match],tar_box) > 0.2) and (iou(kept_boxes[best_match],tar_box) > 0.1):
+                TP +=1     
+
+                kept_boxes = np.delete(kept_boxes, best_match, 0)    
             
 
         # FP = total_pred_count - TP
@@ -291,7 +309,7 @@ def iou(out,tar):
 
     return ((overlap_end - overlap_start)/(union_end-union_start))
 
-def overlap(out, tar, threshold):
+def overlap(out, tar):
     out_box_start = out[0] - out[1]/2
     out_box_end = out[0] + out[1]/2
 
@@ -303,7 +321,4 @@ def overlap(out, tar, threshold):
     union_start = min(out_box_start, tar_box_start)
     union_end = max(out_box_end, tar_box_end)
 
-    if (overlap_end - overlap_start) >= (threshold * (tar_box_end-tar_box_start)):
-        return True
-    else:
-        return False
+    return (overlap_end - overlap_start) / ((tar_box_end-tar_box_start))
